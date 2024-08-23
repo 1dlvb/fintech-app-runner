@@ -45,6 +45,5 @@ To stop the running services, use:
 
 - For Ubuntu:
 ```docker compose stop```
-
 - For Windows:
 ```docker-compose stop```
