@@ -1,0 +1,205 @@
+version: '3.8'
+
+services:
+  deal_postgres:
+    image: 'postgres:latest'
+    container_name: "deal_postgres"
+    volumes:
+      - deal_db_data:/var/lib/postgresql/data
+    ports:
+      - '5433:5432'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=deal_db
+    restart: always
+    networks:
+      - my-network
+  
+  deal_service:
+    image: 1dlvb/deal-service:latest
+    ports:
+      - "8081:8080"
+    environment:
+      - spring.datasource.url=jdbc:postgresql://deal_postgres:5432/deal_db
+      - rabbitmq.caching-connection-factory.uri=rabbitmq
+      - spring.rabbitmq.host=rabbitmq
+      - spring.rabbitmq.port=5672
+      - spring.rabbitmq.username=guest
+      - spring.rabbitmq.password=guest
+      - spring.profiles.active=prod
+    depends_on:
+      - deal_postgres
+      - rabbitmq
+      - kafka
+    networks:
+      - my-network
+
+  contractor_postgres:
+    image: 'postgres:latest'
+    container_name: "contractor_postgres"
+    ports:
+      - '5432:5432'
+    volumes:
+      - contractor_db_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=contractor_db
+    restart: always
+    networks:
+      - my-network
+
+  contractor_service:
+    image: 1dlvb/contractor-service:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - spring.datasource.url=jdbc:postgresql://contractor_postgres:5432/contractor_db
+      - spring.kafka.bootstrap-servers=kafka:29092
+      - spring.rabbitmq.host=rabbitmq
+      - spring.rabbitmq.port=5672
+    depends_on:
+      - contractor_postgres
+      - rabbitmq
+    networks:
+      - my-network
+
+  auth_postgres:
+    image: 'postgres:latest'
+    container_name: "auth_postgres"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    ports:
+      - '5434:5432'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=auth_db
+    restart: always
+    networks:
+      - my-network
+
+  auth_service:
+    image: 1dlvb/auth-service:latest
+    ports:
+      - "8082:8080"
+    environment:
+      - spring.datasource.url=jdbc:postgresql://auth_postgres:5432/auth_db
+      - spring.kafka.bootstrap-servers=kafka:29092
+      - spring.profiles.active=prod
+    depends_on:
+      - auth_postgres
+    networks:
+      - my-network
+
+  message_receiver_postgres:
+    image: 'postgres:latest'
+    container_name: "message_receiver_postgres"
+    volumes:
+      - message_receiver_db_data:/var/lib/postgresql/data
+    ports:
+      - '5435:5432'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=message_receiver_db
+    restart: always
+    networks:
+      - my-network
+
+  message_receiver_service:
+    image: 1dlvb/message-receiver-service:latest
+    ports:
+      - "8083:8080"
+    environment:
+      - spring.datasource.url=jdbc:postgresql://message_receiver_postgres:5432/message_receiver_db
+      - spring.kafka.bootstrap-servers=kafka:29092
+      - spring.profiles.active=prod
+    depends_on:
+      - message_receiver_postgres
+      - kafka
+    networks:
+      - my-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    healthcheck:
+      test: [ "CMD", "nc", "-vz", "localhost", "2181" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 22181:2181
+    networks:
+      - my-network
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - 29092:29092
+    healthcheck:
+      test: [ "CMD", "nc", "-vz", "localhost", "9092" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: OUTSIDE://:29092,INTERNAL://:9092
+      KAFKA_ADVERTISED_LISTENERS: OUTSIDE://kafka:29092,INTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka
+    networks:
+      - my-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    ports:
+      - "8090:8080"
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    networks:
+      - my-network
+
+  rabbitmq:
+    image: rabbitmq:3.13.6-management
+    container_name: rabbitmq
+    restart: always
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - my-network
+
+volumes:
+  deal_db_data:
+  contractor_db_data:
+  auth_db_data:
+  message_receiver_db_data:
+  kafka_data:
+
+networks:
+  my-network:
+    driver: bridge
+
